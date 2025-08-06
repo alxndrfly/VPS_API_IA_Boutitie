@@ -1,20 +1,15 @@
-import streamlit as st
 import os
 import io
 import fitz
 from google.cloud import vision
 from google.cloud.vision_v1 import types
 from openai import OpenAI
-import tempfile
-import json
-import atexit
 from docx import Document
 from docx.shared import Pt
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from datetime import datetime
 import re
 import base64
-import time
 from adobe.pdfservices.operation.auth.service_principal_credentials import ServicePrincipalCredentials
 from adobe.pdfservices.operation.pdf_services import PDFServices
 from adobe.pdfservices.operation.pdf_services_media_type import PDFServicesMediaType
