@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, Request, HTTPException, status, Depends
+from fastapi import FastAPI, UploadFile, File, Request, HTTPException, status, Depends, Header
 from fastapi.responses import StreamingResponse
 from typing import List, Dict
 import backend.app_logic as logic
@@ -12,10 +12,8 @@ app = FastAPI(title="IA-Avocats API", version="0.1")
 load_dotenv()
 API_KEY = os.getenv("API_KEY")
 
-# Reusable API key dependency (for future non-streaming routes)
-def verify_api_key(request: Request):
-    client_key = request.headers.get("x-api-key")
-    if client_key != API_KEY:
+def verify_api_key(x_api_key: str = Header(...)):
+    if x_api_key != API_KEY:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or missing API Key"
@@ -27,19 +25,13 @@ def health() -> Dict[str, str]:
     return {"status": "ok"}
 
 @app.post("/summaries/stream", tags=["resumé"])
-async def summaries_stream(request: Request, files: List[UploadFile] = File(...)):
-    """
-    SSE endpoint – streams {"pct":n,"msg":txt} until 100,
-    then a final  {"result": {...}} payload.
-    Front-end listens with EventSource.
-    """
-    # Inline API key check — necessary because middleware or dependencies
-    # can be bypassed on StreamingResponse endpoints
-    client_key = request.headers.get("x-api-key")
-    if client_key != API_KEY:
-        raise HTTPException(status_code=401, detail="Invalid or missing API Key")
+async def summaries_stream(
+    x_api_key: str = Header(...),
+    files: List[UploadFile] = File(...)
+):
+    # Reuse API key verification function inline here
+    verify_api_key(x_api_key)
 
-    # Pass UploadFile objects straight to the generator
     gen = logic.process_uploaded_files(files)
 
     async def event_source():
@@ -48,3 +40,8 @@ async def summaries_stream(request: Request, files: List[UploadFile] = File(...)
             await asyncio.sleep(0)  # yield to event loop
 
     return StreamingResponse(event_source(), media_type="text/event-stream")
+
+# Example protected route using dependency injection
+@app.get("/some-protected-route", dependencies=[Depends(verify_api_key)])
+def some_protected_route():
+    return {"message": "This route requires a valid API key."}
