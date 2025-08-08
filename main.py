@@ -1,5 +1,6 @@
 from fastapi import FastAPI, UploadFile, File, Request, HTTPException, status, Depends, Header
 from fastapi.responses import StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Dict
 import backend.app_logic as logic
 import json, asyncio
@@ -8,10 +9,31 @@ import os
 
 app = FastAPI(title="IA-Avocats API", version="0.1")
 
-# Load environment variables from .env file
+# -----------------------------
+# CORS configuration
+# -----------------------------
+origins = [
+    "https://avocats.velvet-ia.com",  # Your deployed frontend
+    "http://localhost:5173",          # Local dev (optional)
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],  # Allow all HTTP methods
+    allow_headers=["*"],  # Allow all headers, including x-api-key
+)
+
+# -----------------------------
+# Load environment variables
+# -----------------------------
 load_dotenv()
 API_KEY = os.getenv("API_KEY")
 
+# -----------------------------
+# API key verification
+# -----------------------------
 def verify_api_key(x_api_key: str = Header(...)):
     if x_api_key != API_KEY:
         raise HTTPException(
@@ -19,6 +41,9 @@ def verify_api_key(x_api_key: str = Header(...)):
             detail="Invalid or missing API Key"
         )
 
+# -----------------------------
+# Routes
+# -----------------------------
 @app.get("/health", tags=["meta"])
 def health() -> Dict[str, str]:
     """Simple liveness probe for VPS / uptime checks."""
