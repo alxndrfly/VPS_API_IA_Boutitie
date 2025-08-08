@@ -64,7 +64,17 @@ async def summaries_stream(
             yield f"data:{json.dumps(chunk, ensure_ascii=False)}\n\n"
             await asyncio.sleep(0)  # yield to event loop
 
-    return StreamingResponse(event_source(), media_type="text/event-stream")
+    headers = {
+        "Cache-Control": "no-cache, no-transform",
+        "X-Accel-Buffering": "no",
+        "Content-Type": "text/event-stream; charset=utf-8",
+        # Optional but sometimes helps proxies/clients:
+        "Connection": "keep-alive",
+    }
+
+    return StreamingResponse(event_source(),
+                             media_type="text/event-stream",
+                             headers=headers)
 
 # Example protected route using dependency injection
 @app.get("/some-protected-route", dependencies=[Depends(verify_api_key)])
