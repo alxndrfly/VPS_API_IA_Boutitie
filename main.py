@@ -1,9 +1,3 @@
-# main.py  ── FastAPI entry-point for the “résumé” feature
-#
-# ▶ Run locally:   uvicorn main:app --reload --port 8000
-# ▶ Swagger UI:    http://127.0.0.1:8000/docs
-# ▶ Deployed:      systemd service ➜ nginx ➜ https://api.velvet-ia.com
-
 from fastapi import FastAPI, UploadFile, File, Request, HTTPException, status
 from fastapi.responses import StreamingResponse
 from typing import List, Any, Dict
@@ -17,6 +11,21 @@ app = FastAPI(title="IA-Avocats API", version="0.1")
 # Load environment variables from .env file
 load_dotenv()
 API_KEY = os.getenv("API_KEY")
+
+@app.middleware("http")
+async def verify_api_key(request: Request, call_next):
+    # Paths allowed without API key
+    public_paths = ["/docs", "/openapi.json", "/health"]
+
+    if request.url.path not in public_paths:
+        client_key = request.headers.get("x-api-key")
+        if client_key != API_KEY:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or missing API Key"
+            )
+
+    return await call_next(request)
 
 @app.get("/health", tags=["meta"])
 def health() -> Dict[str, str]:
