@@ -4,13 +4,19 @@
 # ▶ Swagger UI:    http://127.0.0.1:8000/docs
 # ▶ Deployed:      systemd service ➜ nginx ➜ https://api.velvet-ia.com
 
-from fastapi import FastAPI, UploadFile, File
+from fastapi import FastAPI, UploadFile, File, Request, HTTPException, status
 from fastapi.responses import StreamingResponse
 from typing import List, Any, Dict
 import backend.app_logic as logic
 import json, asyncio
+from dotenv import load_dotenv
+import os
 
 app = FastAPI(title="IA-Avocats API", version="0.1")
+
+# Load environment variables from .env file
+load_dotenv()
+API_KEY = os.getenv("API_KEY")
 
 @app.get("/health", tags=["meta"])
 def health() -> Dict[str, str]:
