@@ -77,9 +77,19 @@ async def summaries_start(
     files: List[UploadFile] = File(...),
     x_api_key: str | None = Header(default=None),
 ):
-    check_api_key(x_api_key)  # <-- validate
+    # Validate API key
+    check_api_key(x_api_key)
+
+    # Snapshot all file bytes immediately (UploadFile stream is not safe later)
+    buffered_files = []
+    for f in files:
+        content = await f.read()
+        filename = getattr(f, "filename", getattr(f, "name", "upload.pdf"))
+        buffered_files.append({"filename": filename, "content": content})
+
+    # Create a job and launch processing in background
     job_id = job_store.create_job()
-    background_tasks.add_task(start_processing, job_id, files)
+    background_tasks.add_task(start_processing, job_id, buffered_files)
     return {"job_id": job_id}
 
 
@@ -99,6 +109,7 @@ async def summaries_stream(
         q = job_store.get_queue(job_id)
         while True:
             item = await q.get()
+            # For SSE, each message is one JSON payload
             yield f"data:{json.dumps(item, ensure_ascii=False)}\n\n"
             if item.get("event") == "done":
                 break
