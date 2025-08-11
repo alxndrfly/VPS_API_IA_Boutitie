@@ -48,7 +48,6 @@ def verify_api_key(
     api_key_qs: str | None = None,  # pulled from query via dependency below when used
 ):
     key = x_api_key or api_key_qs
-    print(f"[verify_api_key] got={key!r} expected={API_KEY!r}")  # <-- TEMP DEBUG
     if key != API_KEY:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -103,22 +102,30 @@ async def summaries_stream(
     job_id: str,
     api_key: str | None = Query(default=None, alias="api_key"),
 ):
-    check_api_key(api_key)  # <-- validate
+    check_api_key(api_key)
 
     if not job_store.exists(job_id):
         raise HTTPException(status_code=404, detail="Unknown job_id")
 
     async def event_source():
-        yield "retry: 2000\n\n"
+        # Send preamble: retry + 2KB padding comment to defeat proxy buffering
+        yield "retry: 2000\n"
+        yield ":" + (" " * 2048) + "\n\n"
+
         q = job_store.get_queue(job_id)
         while True:
             item = await q.get()
-            # For SSE, each message is one JSON payload
+            # one message per chunk
             yield f"data:{json.dumps(item, ensure_ascii=False)}\n\n"
+
+            # Give the loop a chance to flush/schedule
+            await asyncio.sleep(0)
+
             if item.get("event") == "done":
                 break
 
     headers = {
+        "Content-Type": "text/event-stream; charset=utf-8",
         "Cache-Control": "no-cache, no-transform",
         "Connection": "keep-alive",
         "X-Accel-Buffering": "no",
