@@ -5,6 +5,7 @@ from typing import List, Dict
 import os, asyncio, json
 from dotenv import load_dotenv
 from backend.jobs import job_store, start_processing
+import time
 
 
 app = FastAPI(title="IA-Avocats API", version="0.1")
@@ -77,19 +78,22 @@ async def summaries_start(
     files: List[UploadFile] = File(...),
     x_api_key: str | None = Header(default=None),
 ):
-    # Validate API key
+    t0 = time.time(); print(f"[start] enter        t={t0:.3f}")
+
     check_api_key(x_api_key)
 
-    # Snapshot all file bytes immediately (UploadFile stream is not safe later)
     buffered_files = []
     for f in files:
         content = await f.read()
         filename = getattr(f, "filename", getattr(f, "name", "upload.pdf"))
         buffered_files.append({"filename": filename, "content": content})
+    t1 = time.time(); print(f"[start] after read   Δ={(t1-t0):.3f}s")
 
-    # Create a job and launch processing in background
     job_id = job_store.create_job()
     background_tasks.add_task(start_processing, job_id, buffered_files)
+    t2 = time.time(); print(f"[start] after bg add Δ={(t2-t1):.3f}s")
+
+    print(f"[start] returning job_id={job_id} at t={time.time()-t0:.3f}s")
     return {"job_id": job_id}
 
 
