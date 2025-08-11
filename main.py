@@ -34,7 +34,6 @@ API_KEY = os.getenv("API_KEY")
 
 # Plain API key checker (no FastAPI params here)
 def check_api_key(key: str | None):
-    print(f"[check_api_key] got={key!r} expected={API_KEY!r}")  # TEMP DEBUG
     if key != API_KEY:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
