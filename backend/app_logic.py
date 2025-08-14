@@ -245,7 +245,7 @@ def process_uploaded_files(uploaded_files):
     yield {"pct": 90, "msg": "Finalisation…"}
     
     # Create bordereau section
-    bordereau_section = "BORDEREAU DE PIECES COMMUNIQUEES\n\n" + "\n".join(entry + "\n" for entry in bordereau_entries)
+    bordereau_section = "BORDEREAU DE PIÈCES COMMUNIQUÉES\n\n" + "\n".join(entry + "\n" for entry in bordereau_entries)
 
     yield {"pct": 100, "msg": "Fini!"}
 
