@@ -117,17 +117,31 @@ async def summaries_stream(
         raise HTTPException(status_code=404, detail="Unknown job_id")
 
     async def event_source():
-        # Preamble to defeat proxy buffering
+        # Preamble to defeat proxy/client buffering
         yield "retry: 2000\n"
         yield ":" + (" " * 2048) + "\n\n"
 
         q = job_store.get_queue(job_id)
+        last_beat = time.time()
+
         while True:
-            item = await q.get()
-            yield f"data:{json.dumps(item, ensure_ascii=False)}\n\n"
-            await asyncio.sleep(0)
-            if item.get("event") == "done":
-                break
+            try:
+                # Wait up to 1s for the next item; if none, send a heartbeat
+                item = await asyncio.wait_for(q.get(), timeout=1.0)
+                # Proper SSE event with double newline
+                payload = json.dumps(item, ensure_ascii=False)
+                yield f"data: {payload}\n\n"
+                # Let the loop cycle so the transport flushes now
+                await asyncio.sleep(0)
+
+                if isinstance(item, dict) and item.get("event") == "done":
+                    break
+
+                last_beat = time.time()
+            except asyncio.TimeoutError:
+                # Heartbeat comment (keeps buffers open and flushing)
+                yield f": hb {int(time.time())}\n\n"
+                await asyncio.sleep(0)
 
     headers = {
         "Content-Type": "text/event-stream; charset=utf-8",
