@@ -235,14 +235,14 @@ def process_uploaded_files(uploaded_files):
     
 
     # ---------- 70% → 85% : chrono sort ----------
-    yield {"pct": 70, "msg": "Tri chronologique des résumés…"}
+    yield {"pct": 80, "msg": "Tri chronologique des résumés…"}
 
     # Combine all results
     combined_summaries = "\n\n------\n\n".join(all_summaries)
     chronological_summary = sort_summaries_chronologically(combined_summaries)
     
     # ---------- 85% → 100% : finalise ----------
-    yield {"pct": 85, "msg": "Finalisation…"}
+    yield {"pct": 90, "msg": "Finalisation…"}
     
     # Create bordereau section
     bordereau_section = "BORDEREAU DE PIECES COMMUNIQUEES\n\n" + "\n".join(entry + "\n" for entry in bordereau_entries)
