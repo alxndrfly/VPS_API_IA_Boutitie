@@ -5,9 +5,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Dict, Optional
 import os, asyncio, json, time
 from dotenv import load_dotenv
-from backend.jobs import job_store, start_processing
+from backend.jobs import job_store, start_processing, start_pdf_to_word
+
+
+
 
 app = FastAPI(title="IA-Avocats API", version="0.2")
+
+
+
 
 # -----------------------------
 # CORS
@@ -24,11 +30,17 @@ app.add_middleware(
     allow_headers=["*"],  # includes x-api-key
 )
 
+
+
 # -----------------------------
 # Auth
 # -----------------------------
 load_dotenv()
 API_KEY = os.getenv("API_KEY")
+
+
+
+
 
 def check_api_key(key: Optional[str]) -> None:
     if key != API_KEY:
@@ -37,22 +49,23 @@ def check_api_key(key: Optional[str]) -> None:
             detail="Invalid or missing API Key"
         )
 
-# -----------------------------
-# In‑memory upload cache
-# job_id -> List[{"filename": str, "content": bytes}]
-# -----------------------------
+
+
+
 uploads_cache: Dict[str, List[Dict[str, bytes]]] = {}
 
-# -----------------------------
-# Meta
-# -----------------------------
+
+
+
 @app.get("/health", tags=["meta"])
 def health() -> Dict[str, str]:
     return {"status": "ok"}
 
-# -----------------------------
-# New Flow
-# -----------------------------
+
+
+
+
+
 @app.post("/jobs/new")
 async def jobs_new(x_api_key: Optional[str] = Header(default=None)):
     """Create an empty job and return its id immediately."""
@@ -60,6 +73,10 @@ async def jobs_new(x_api_key: Optional[str] = Header(default=None)):
     job_id = job_store.create_job()
     uploads_cache[job_id] = []
     return {"job_id": job_id}
+
+
+
+
 
 @app.post("/uploads/batch")
 async def uploads_batch(
@@ -85,6 +102,10 @@ async def uploads_batch(
 
     return {"job_id": job_id, "received": received}
 
+
+
+
+
 @app.post("/summaries/commit")
 async def summaries_commit(
     background_tasks: BackgroundTasks,
@@ -104,6 +125,35 @@ async def summaries_commit(
 
     background_tasks.add_task(start_processing, job_id, buffered_files)
     return {"job_id": job_id, "status": "queued"}
+
+
+
+
+
+
+@app.post("/pdf2word/commit")
+async def pdf2word_commit(
+    background_tasks: BackgroundTasks,
+    job_id: str = Query(...),
+    x_api_key: Optional[str] = Header(default=None),
+):
+    """
+    Start the PDF → Word conversion after upload.
+    Accepts **exactly one** PDF buffered in uploads_cache[job_id].
+    """
+    check_api_key(x_api_key)
+    buffered_files = uploads_cache.pop(job_id, None)
+    if buffered_files is None:
+        raise HTTPException(status_code=404, detail="Unknown job_id")
+    if len(buffered_files) != 1:
+        raise HTTPException(status_code=400, detail="Exactly one PDF required")
+
+    background_tasks.add_task(start_pdf_to_word, job_id, buffered_files)
+    return {"job_id": job_id, "status": "queued"}
+
+
+
+
 
 # GET uses query param (EventSource can't send headers)
 @app.get("/summaries/stream")
@@ -150,3 +200,14 @@ async def summaries_stream(
         "X-Accel-Buffering": "no",
     }
     return StreamingResponse(event_source(), media_type="text/event-stream", headers=headers)
+
+
+
+
+@app.get("/pdf2word/stream")
+async def pdf2word_stream(
+    job_id: str,
+    api_key: Optional[str] = Query(default=None, alias="api_key"),
+):
+    # Re-use the same SSE logic
+    return await summaries_stream(job_id, api_key)

@@ -104,3 +104,63 @@ async def start_processing(job_id: str, files: List[Dict[str, Any]]):
         await job_store.push(job_id, {"event": "error", "detail": str(exc)})
         await job_store.push(job_id, {"event": "done"})
         job_store.mark_done(job_id)
+
+
+async def start_pdf_to_word(job_id: str, files: List[Dict[str, Any]]):
+    """
+    Convert ONE uploaded PDF to DOCX and stream progress.
+    Emits:
+      started → progress (10 %, 85 %) → result (base64) → done
+    """
+    from backend.app_logic import convert_pdf_to_word, InMemoryUpload  # latter already declared
+
+    try:
+        await job_store.push(job_id, {"event": "started", "ts": time.time()})
+
+        if len(files) != 1:
+            await job_store.push(job_id, {"event": "error",
+                                          "detail": "Exactly one PDF expected"})
+            await job_store.push(job_id, {"event": "done"})
+            job_store.mark_done(job_id)
+            return
+
+        upload = InMemoryUpload(files[0]["filename"], files[0]["content"])
+
+        await job_store.push(job_id, {"event": "progress", "pct": 10,
+                                      "msg": "Conversion en cours…"})
+
+        loop = asyncio.get_running_loop()
+        word_buf = await loop.run_in_executor(
+            None, lambda: convert_pdf_to_word(upload)
+        )
+
+        if not word_buf:
+            await job_store.push(job_id, {"event": "error",
+                                          "detail": "Adobe API failed"})
+            await job_store.push(job_id, {"event": "done"})
+            job_store.mark_done(job_id)
+            return
+
+        await job_store.push(job_id, {"event": "progress", "pct": 85,
+                                      "msg": "Encodage du DOCX…"})
+
+        import base64, os
+        b64 = base64.b64encode(word_buf.getvalue()).decode()
+        out_name = os.path.splitext(upload.name)[0] + ".docx"
+
+        await job_store.push(job_id, {
+            "event": "result",
+            "data": {
+                "filename": out_name,
+                "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "base64": b64
+            }
+        })
+
+        await job_store.push(job_id, {"event": "done", "ts": time.time()})
+        job_store.mark_done(job_id)
+
+    except Exception as exc:
+        await job_store.push(job_id, {"event": "error", "detail": str(exc)})
+        await job_store.push(job_id, {"event": "done"})
+        job_store.mark_done(job_id)
