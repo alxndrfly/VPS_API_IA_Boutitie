@@ -1,5 +1,5 @@
 # backend/jobs.py
-import asyncio, json, uuid
+import asyncio, json, uuid, time
 from typing import Dict, Any, List
 from fastapi import UploadFile
 
@@ -43,37 +43,52 @@ class InMemoryUpload:
         return self._content
 
 
-async def start_processing(job_id: str, files: List[Dict[str, Any]]):
-    """Process uploaded files and stream progress/events to the job queue.
+async def start_processing(job_id: str, files: list[dict]):
+    """Process PDFs and stream progress via job_store queue."""
+    q = job_store.get_queue(job_id)
 
-    `files` should be a list of dicts: {"filename": str, "content": bytes}
-    """
-    from backend.app_logic import process_uploaded_files
+    # 1) announce start
+    await q.put({"event": "started", "job_id": job_id, "ts": time.time()})
+    await asyncio.sleep(0)  # yield control to flush
 
-    try:
-        await job_store.push(job_id, {"event": "started"})
+    total = len(files)
+    for idx, f in enumerate(files, start=1):
+        # 2) per-file start
+        await q.put({
+            "event": "progress",
+            "job_id": job_id,
+            "step": f"reading_file_{idx}",
+            "message": f"L'IA traite les PDFs... ({idx}/{total})",
+            "percent": int((idx - 1) / total * 100),
+            "filename": f.get("filename"),
+        })
+        await asyncio.sleep(0)
 
-        # Adapt incoming payload into objects expected by app_logic
-        adapted_files = [InMemoryUpload(f["filename"], f["content"]) for f in files]
+        # --- your actual heavy work per file here ---
+        # Example: simulate work with small async sleeps so the loop can flush
+        for sub in range(1, 6):
+            await asyncio.sleep(0.3)  # replace with real async I/O calls
+            await q.put({
+                "event": "progress",
+                "job_id": job_id,
+                "step": f"file_{idx}_chunk_{sub}",
+                "message": f"Traitement {idx}/{total} - étape {sub}/5",
+                "percent": min(99, int(((idx - 1) + sub/5) / total * 100)),
+            })
 
-        # Iterate the generator from app_logic and forward progress/result
-        for payload in process_uploaded_files(adapted_files):
-            if "pct" in payload or "msg" in payload:
-                await job_store.push(job_id, {
-                    "event": "progress",
-                    **payload,
-                })
-            elif "result" in payload:
-                await job_store.push(job_id, {
-                    "event": "result",
-                    "data": payload["result"],
-                })
+        # save any per-file result if you need to combine later
+        # ...
 
-        await job_store.push(job_id, {"event": "done"})
-        job_store.mark_done(job_id)
+    # 3) final result example — replace with your real summaries
+    result_payload = {
+        "event": "result",
+        "job_id": job_id,
+        "original_summary": "Résumé original combiné…",
+        "chronological_summary": "Résumé chronologique combiné…",
+    }
+    await q.put(result_payload)
+    await asyncio.sleep(0)
 
-    except Exception as exc:
-        # Surface an error event to the stream consumers
-        await job_store.push(job_id, {"event": "error", "detail": str(exc)})
-        await job_store.push(job_id, {"event": "done"})
-        job_store.mark_done(job_id)
+    # 4) done
+    await q.put({"event": "done", "job_id": job_id, "ts": time.time()})
+    await asyncio.sleep(0)
