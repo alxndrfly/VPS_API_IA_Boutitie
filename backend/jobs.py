@@ -112,7 +112,7 @@ async def start_pdf_to_word(job_id: str, files: List[Dict[str, Any]]):
     Emits:
       started → progress (10 %, 85 %) → result (base64) → done
     """
-    from backend.app_logic import convert_pdf_to_word, InMemoryUpload  # latter already declared
+    from backend.app_logic import convert_pdf_to_word
 
     try:
         await job_store.push(job_id, {"event": "started", "ts": time.time()})
