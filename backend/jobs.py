@@ -1,7 +1,8 @@
 # backend/jobs.py
-import asyncio, json, uuid, time
+import asyncio, json, uuid, time, threading
 from typing import Dict, Any, List
 from fastapi import UploadFile
+
 
 class JobStore:
     def __init__(self):
@@ -48,6 +49,8 @@ async def start_processing(job_id: str, files: List[Dict[str, Any]]):
     Run the sync progress generator and forward items to the SSE queue in real time.
     Keeps your original payload shape: 'pct'/'msg' for progress, 'result' for final data.
     """
+    from backend.app_logic import process_uploaded_files
+
     try:
         await job_store.push(job_id, {"event": "started", "ts": time.time()})
 
