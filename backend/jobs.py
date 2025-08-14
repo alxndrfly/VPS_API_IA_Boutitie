@@ -4,6 +4,10 @@ from typing import Dict, Any, List
 from fastapi import UploadFile
 
 
+
+
+
+
 class JobStore:
     def __init__(self):
         self.queues: Dict[str, asyncio.Queue] = {}
@@ -28,7 +32,17 @@ class JobStore:
     def mark_done(self, job_id: str):
         self.done[job_id] = True
 
+
+
+
+
+
 job_store = JobStore()
+
+
+
+
+
 
 class InMemoryUpload:
     """Lightweight wrapper to mimic the subset of interface used by app_logic.
@@ -42,6 +56,14 @@ class InMemoryUpload:
 
     def read(self) -> bytes:
         return self._content
+
+    def getvalue(self) -> bytes:
+        return self._content
+
+
+
+
+
 
 
 async def start_processing(job_id: str, files: List[Dict[str, Any]]):
@@ -104,6 +126,13 @@ async def start_processing(job_id: str, files: List[Dict[str, Any]]):
         await job_store.push(job_id, {"event": "error", "detail": str(exc)})
         await job_store.push(job_id, {"event": "done"})
         job_store.mark_done(job_id)
+
+
+
+
+
+
+
 
 
 async def start_pdf_to_word(job_id: str, files: List[Dict[str, Any]]):
