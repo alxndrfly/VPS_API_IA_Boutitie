@@ -43,52 +43,61 @@ class InMemoryUpload:
         return self._content
 
 
-async def start_processing(job_id: str, files: list[dict]):
-    """Process PDFs and stream progress via job_store queue."""
-    q = job_store.get_queue(job_id)
+async def start_processing(job_id: str, files: List[Dict[str, Any]]):
+    """
+    Run the sync progress generator and forward items to the SSE queue in real time.
+    Keeps your original payload shape: 'pct'/'msg' for progress, 'result' for final data.
+    """
+    try:
+        await job_store.push(job_id, {"event": "started", "ts": time.time()})
 
-    # 1) announce start
-    await q.put({"event": "started", "job_id": job_id, "ts": time.time()})
-    await asyncio.sleep(0)  # yield control to flush
+        # Adapt input to what app_logic expects (.name and .read())
+        adapted_files = [InMemoryUpload(f["filename"], f["content"]) for f in files]
 
-    total = len(files)
-    for idx, f in enumerate(files, start=1):
-        # 2) per-file start
-        await q.put({
-            "event": "progress",
-            "job_id": job_id,
-            "step": f"reading_file_{idx}",
-            "message": f"L'IA traite les PDFs... ({idx}/{total})",
-            "percent": int((idx - 1) / total * 100),
-            "filename": f.get("filename"),
-        })
-        await asyncio.sleep(0)
+        # Cross-thread handoff queue
+        q: asyncio.Queue = asyncio.Queue()
+        loop = asyncio.get_event_loop()
 
-        # --- your actual heavy work per file here ---
-        # Example: simulate work with small async sleeps so the loop can flush
-        for sub in range(1, 6):
-            await asyncio.sleep(0.3)  # replace with real async I/O calls
-            await q.put({
-                "event": "progress",
-                "job_id": job_id,
-                "step": f"file_{idx}_chunk_{sub}",
-                "message": f"Traitement {idx}/{total} - étape {sub}/5",
-                "percent": min(99, int(((idx - 1) + sub/5) / total * 100)),
-            })
+        def worker():
+            """Run the synchronous generator and ship items to the asyncio queue."""
+            try:
+                for payload in process_uploaded_files(adapted_files):
+                    asyncio.run_coroutine_threadsafe(q.put(payload), loop)
+                asyncio.run_coroutine_threadsafe(q.put({"__end__": True}), loop)
+            except Exception as e:
+                asyncio.run_coroutine_threadsafe(q.put({"__error__": str(e)}), loop)
 
-        # save any per-file result if you need to combine later
-        # ...
+        threading.Thread(target=worker, daemon=True).start()
 
-    # 3) final result example — replace with your real summaries
-    result_payload = {
-        "event": "result",
-        "job_id": job_id,
-        "original_summary": "Résumé original combiné…",
-        "chronological_summary": "Résumé chronologique combiné…",
-    }
-    await q.put(result_payload)
-    await asyncio.sleep(0)
+        # Consume items as they arrive and forward to the SSE queue
+        while True:
+            item = await q.get()
 
-    # 4) done
-    await q.put({"event": "done", "job_id": job_id, "ts": time.time()})
-    await asyncio.sleep(0)
+            if "__error__" in item:
+                await job_store.push(job_id, {"event": "error", "detail": item["__error__"]})
+                break
+
+            if "__end__" in item:
+                break
+
+            if "pct" in item or "msg" in item:
+                # Your original progress shape
+                await job_store.push(job_id, {"event": "progress", **item})
+                await asyncio.sleep(0)  # yield so StreamingResponse can flush now
+
+            elif "result" in item:
+                await job_store.push(job_id, {"event": "result", "data": item["result"]})
+                await asyncio.sleep(0)
+
+            else:
+                # Unknown payloads won't crash the stream; they show up for debugging
+                await job_store.push(job_id, {"event": "progress", "debug": item})
+                await asyncio.sleep(0)
+
+        await job_store.push(job_id, {"event": "done", "ts": time.time()})
+        job_store.mark_done(job_id)
+
+    except Exception as exc:
+        await job_store.push(job_id, {"event": "error", "detail": str(exc)})
+        await job_store.push(job_id, {"event": "done"})
+        job_store.mark_done(job_id)
