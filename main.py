@@ -1,11 +1,11 @@
-# main.py — minimal “new flow” API
+# main.py
 from fastapi import FastAPI, UploadFile, File, HTTPException, status, Header, BackgroundTasks, Query
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Dict, Optional
 import os, asyncio, json, time
 from dotenv import load_dotenv
-from backend.jobs import job_store, start_processing, start_pdf_to_word
+from backend.jobs import job_store, start_processing, start_pdf_to_word, start_doc_resume
 
 
 
@@ -157,6 +157,36 @@ async def pdf2word_commit(
 
 
 
+
+
+
+@app.post("/docresume/commit")
+async def docresume_commit(
+    background_tasks: BackgroundTasks,
+    job_id: str = Query(...),
+    x_api_key: Optional[str] = Header(default=None),
+):
+    """
+    Start single-document résumé generation after upload.
+    Expects exactly one PDF or DOCX already buffered in uploads_cache[job_id].
+    """
+    check_api_key(x_api_key)
+    buffered = uploads_cache.pop(job_id, None)
+    if buffered is None:
+        raise HTTPException(status_code=404, detail="Unknown job_id")
+    if len(buffered) != 1:
+        raise HTTPException(status_code=400, detail="Exactly one document required")
+
+    background_tasks.add_task(start_doc_resume, job_id, buffered)
+    return {"job_id": job_id, "status": "queued"}
+
+
+
+
+
+
+
+
 # GET uses query param (EventSource can't send headers)
 @app.get("/summaries/stream")
 async def summaries_stream(
@@ -206,6 +236,9 @@ async def summaries_stream(
 
 
 
+
+
+
 @app.get("/pdf2word/stream")
 async def pdf2word_stream(
     job_id: str,
@@ -213,3 +246,18 @@ async def pdf2word_stream(
 ):
     # Re-use the same SSE logic
     return await summaries_stream(job_id, api_key)
+
+
+
+
+
+
+
+
+@app.get("/docresume/stream")
+async def docresume_stream(
+    job_id: str,
+    api_key: Optional[str] = Query(default=None, alias="api_key"),
+):
+    # Re-use the same SSE generator
+    return await summaries_stream(job_id, api_key)  # type: ignore

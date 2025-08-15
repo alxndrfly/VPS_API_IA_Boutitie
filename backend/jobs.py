@@ -1,5 +1,5 @@
 # backend/jobs.py
-import asyncio, json, uuid, time, threading
+import asyncio, json, uuid, time, threading, base64
 from typing import Dict, Any, List
 from fastapi import UploadFile
 
@@ -183,6 +183,84 @@ async def start_pdf_to_word(job_id: str, files: List[Dict[str, Any]]):
                 "filename": out_name,
                 "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                 "base64": b64
+            }
+        })
+
+        await job_store.push(job_id, {"event": "done", "ts": time.time()})
+        job_store.mark_done(job_id)
+
+    except Exception as exc:
+        await job_store.push(job_id, {"event": "error", "detail": str(exc)})
+        await job_store.push(job_id, {"event": "done"})
+        job_store.mark_done(job_id)
+
+
+
+
+
+
+
+
+
+async def start_doc_resume(job_id: str, files: List[Dict[str, Any]]):
+    """
+    Generate a single-document résumé (PDF or Word) and stream progress.
+
+    Emits:
+      started → progress (10 %, 85 %) → result {filename, mime, base64, text} → done
+    """
+    from backend.app_logic import (
+        create_single_document_summary,
+        create_summary_word_document,
+        InMemoryUpload,  # re-use existing wrapper
+    )
+
+    try:
+        await job_store.push(job_id, {"event": "started", "ts": time.time()})
+
+        if len(files) != 1:
+            await job_store.push(job_id, {"event": "error",
+                                          "detail": "Exactly one document expected"})
+            await job_store.push(job_id, {"event": "done"})
+            job_store.mark_done(job_id)
+            return
+
+        upload = InMemoryUpload(files[0]["filename"], files[0]["content"])
+
+        await job_store.push(job_id, {"event": "progress", "pct": 10,
+                                      "msg": "Génération du résumé…"})
+
+        # Run blocking summariser in a thread pool
+        loop = asyncio.get_running_loop()
+        summary_text: str | None = await loop.run_in_executor(
+            None, lambda: create_single_document_summary(upload)
+        )
+
+        if not summary_text:
+            await job_store.push(job_id, {"event": "error",
+                                          "detail": "Résumé échoué"})
+            await job_store.push(job_id, {"event": "done"})
+            job_store.mark_done(job_id)
+            return
+
+        # Build a .docx version
+        word_buf = await loop.run_in_executor(
+            None, lambda: create_summary_word_document(summary_text, upload.name)
+        )
+
+        await job_store.push(job_id, {"event": "progress", "pct": 85,
+                                      "msg": "Encodage du DOCX…"})
+
+        b64 = base64.b64encode(word_buf.getvalue()).decode("ascii")
+        out_name = (upload.name.rsplit(".", 1)[0] or "resume") + ".docx"
+
+        await job_store.push(job_id, {
+            "event": "result",
+            "data": {
+                "filename": out_name,
+                "mime": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                "base64": b64,
+                "text": summary_text,
             }
         })
 
