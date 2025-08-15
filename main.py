@@ -29,8 +29,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
-    allow_origin_regex=r"https://.*\.bolt\.run",
-    allow_origin_regex=r"https://.*\.webcontainer-api\.io",
+    allow_origin_regex=r"https:\/\/.*\.(webcontainer-api\.io|bolt\.run)$",
 )
 
 
