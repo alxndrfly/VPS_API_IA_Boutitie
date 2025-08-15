@@ -21,13 +21,15 @@ app = FastAPI(title="IA-Avocats API", version="0.2")
 origins = [
     "https://avocats.velvet-ia.com",
     "http://localhost:5173",
+    "https://bolt.new",
 ]
 app.add_middleware(
     CORSMiddleware,
     allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],  # includes x-api-key
+    allow_headers=["*"],
+    allow_origin_regex=r"https://.*\.bolt\.run",
 )
 
 
