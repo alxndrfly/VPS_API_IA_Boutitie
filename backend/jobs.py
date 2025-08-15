@@ -212,8 +212,8 @@ async def start_doc_resume(job_id: str, files: List[Dict[str, Any]]):
     from backend.app_logic import (
         create_single_document_summary,
         create_summary_word_document,
-        InMemoryUpload,  # re-use existing wrapper
     )
+
 
     try:
         await job_store.push(job_id, {"event": "started", "ts": time.time()})
